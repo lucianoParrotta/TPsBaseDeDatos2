@@ -1,0 +1,84 @@
+use('tiendaOnline');
+
+db.ventas.aggregate([
+
+  // 1 Crear un campo "mes" extraído de la fecha de venta
+  {
+    $addFields: {
+      mes: { $month: "$fecha" }
+    }
+  },
+
+  // 2 Agrupar por mes y producto:
+  //     - contar cantidad vendida por producto
+  //     - sumar total de venta por producto
+  {
+    $group: {
+      _id: { mes: "$mes", producto: "$producto_id" },
+      cantidadVendida: { $sum: "$cantidad" },
+      totalVendidoProducto: { $sum: "$total" }
+    }
+  },
+
+  // 3 Ordenar por mes y por cantidad descendente (más vendido primero)
+  {
+    $sort: {
+      "_id.mes": 1,
+      cantidadVendida: -1
+    }
+  },
+
+  // 4 Agrupar por mes para:
+  //     - obtener el producto con más ventas en ese mes
+  //     - calcular total de todas las ventas del mes
+  {
+    $group: {
+      _id: "$_id.mes",
+      productoMasVendido: { $first: "$_id.producto" },
+      cantidadVendida: { $first: "$cantidadVendida" },
+      totalVendidoMes: { $sum: "$totalVendidoProducto" }
+    }
+  },
+
+  // 5 Enlazar información del producto más vendido
+  {
+    $lookup: {
+      from: "productos",
+      localField: "productoMasVendido",
+      foreignField: "_id",
+      as: "producto"
+    }
+  },
+  { $unwind: "$producto" },
+
+  // 6 Presentar los campos requeridos
+  {
+    $project: {
+      mes: "$_id",
+      productoMasVendido: "$producto.nombre",
+      categoria: "$producto.categoria",
+      cantidadVendida: 1,
+      totalVendidoMes: 1
+    }
+  },
+
+  // 7 Ordenar por mes ascendente
+  {
+    $sort: { mes: 1 }
+  }
+
+]);
+
+/*
+salida esperada:
+[
+  {
+    "_id": 3,
+    "cantidadVendida": 3,
+    "totalVendidoMes": 6210,
+    "mes": 3,
+    "productoMasVendido": "Teclado Mecánico RGB",
+    "categoria": "Accesorios"
+}
+]
+*/

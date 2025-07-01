@@ -1,0 +1,101 @@
+use ('tiendaOnline');
+
+db.productos.aggregate([
+  //Filtrar los productos que tienen al menos 2 valoraciones
+  {
+    $match: {
+      $expr: { $gte: [ { $size: "$valoraciones" }, 2 ] }
+    }
+  },
+
+  //Calculo del promedio de puntuaciones
+  {
+    $project: {
+      nombre: 1,
+      categoria: 1,
+      cantidadValoraciones: { $size: "$valoraciones" },
+      promedioPuntuacion: { $avg: "$valoraciones.puntuacion" }
+    }
+  },
+
+  //Orden descendente
+  {
+    $sort: { promedioPuntuacion: -1 }
+  }
+]);
+
+/*
+//salida esperada(Valoracion promedio de los productos):
+[
+  {
+    "_id": 4,
+    "nombre": "Monitor UltraWide",
+    "categoria": "Electrónica",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 5
+  },
+  {
+    "_id": 6,
+    "nombre": "Tablet Pro",
+    "categoria": "Electrónica",
+    "cantidadValoraciones": 3,
+    "promedioPuntuacion": 4.666666666666667
+  },
+  {
+    "_id": 2,
+    "nombre": "Smartphone Galaxy",
+    "categoria": "Electrónica",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 4.5
+  },
+  {
+    "_id": 7,
+    "nombre": "Mouse Gaming",
+    "categoria": "Accesorios",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 4.5
+  },
+  {
+    "_id": 10,
+    "nombre": "Disco Duro Externo",
+    "categoria": "Almacenamiento",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 4.5
+  },
+  {
+    "_id": 1,
+    "nombre": "Laptop Pro X",
+    "categoria": "Electrónica",
+    "cantidadValoraciones": 3,
+    "promedioPuntuacion": 4
+  },
+  {
+    "_id": 3,
+    "nombre": "Auriculares Inalámbricos",
+    "categoria": "Accesorios",
+    "cantidadValoraciones": 3,
+    "promedioPuntuacion": 4
+  },
+  {
+    "_id": 9,
+    "nombre": "Webcam HD",
+    "categoria": "Accesorios",
+    "cantidadValoraciones": 3,
+    "promedioPuntuacion": 4
+  },
+  {
+    "_id": 5,
+    "nombre": "Teclado Mecánico RGB",
+    "categoria": "Accesorios",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 3.5
+  },
+  {
+    "_id": 8,
+    "nombre": "Impresora Láser",
+    "categoria": "Oficina",
+    "cantidadValoraciones": 2,
+    "promedioPuntuacion": 3.5
+  }
+]
+*/

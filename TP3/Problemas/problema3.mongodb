@@ -1,0 +1,350 @@
+
+use('tiendaOnline');
+
+db.ventas.aggregate([
+
+  // 1 Vincular cada venta con su producto correspondiente
+  {
+    $lookup: {
+      from: "productos",
+      localField: "producto_id",
+      foreignField: "_id",
+      as: "producto"
+    }
+  },
+
+  // 2 Desanidar el array 'producto' para trabajar con un documento único
+  {
+    $unwind: "$producto"
+  },
+
+  // 3 Agrupar por cliente + producto + categoría:
+  //    - Sumar el gasto total en ese producto
+  //    - Sumar la cantidad comprada
+  //    - Guardar fechas de compra
+  //    - Contar el número de compras de ese producto
+  {
+    $group: {
+      _id: {
+        email: "$cliente.email",
+        nombre: "$cliente.nombre",
+        producto: "$producto.nombre",
+        categoria: "$producto.categoria"
+      },
+      totalGastado: { $sum: "$total" },
+      cantidadComprada: { $sum: "$cantidad" },
+      fechas: { $push: "$fecha" },
+      compras: { $sum: 1 }
+    }
+  },
+
+  // 4 Agrupar nuevamente por cliente (independientemente de producto/categoría):
+  //    - Sumar el total gastado en todos los productos
+  //    - Sumar la cantidad total de compras
+  //    - Generar un array de productos comprados y sus cantidades
+  //    - Generar un array de categorías y gasto por categoría
+  //    - Unificacion de todas las fechas
+  {
+    $group: {
+      _id: {
+        email: "$_id.email",
+        nombre: "$_id.nombre"
+      },
+      totalGastado: { $sum: "$totalGastado" },
+      cantidadCompras: { $sum: "$compras" },
+      productos: {
+        $push: {
+          nombre: "$_id.producto",
+          cantidad: "$cantidadComprada"
+        }
+      },
+      categorias: {
+        $push: {
+          categoria: "$_id.categoria",
+          gasto: "$totalGastado"
+        }
+      },
+      fechas: { $push: "$fechas" }
+    }
+  },
+
+  // 5 Construir un documento final con los campos requeridos:
+  //    - Producto favorito: el más comprado
+  //    - Categoría preferida: donde más gastó
+  //    - Primera y última compra
+  {
+    $project: {
+      nombre: "$_id.nombre",
+      email: "$_id.email",
+      totalGastado: 1,
+      cantidadCompras: 1,
+
+      // Producto favorito (máxima cantidad)
+      productoFavorito: {
+        $reduce: {
+          input: "$productos",
+          initialValue: { nombre: "", cantidad: 0 },
+          in: {
+            $cond: [
+              { $gt: ["$$this.cantidad", "$$value.cantidad"] },
+              "$$this",
+              "$$value"
+            ]
+          }
+        }
+      },
+
+      // Categoría preferida (máximo gasto)
+      categoriaPreferida: {
+        $reduce: {
+          input: "$categorias",
+          initialValue: { categoria: "", gasto: 0 },
+          in: {
+            $cond: [
+              { $gt: ["$$this.gasto", "$$value.gasto"] },
+              "$$this",
+              "$$value"
+            ]
+          }
+        }
+      },
+
+      // Fecha de la primera compra
+      primeraCompra: {
+        $min: {
+          $reduce: {
+            input: "$fechas",
+            initialValue: [],
+            in: { $concatArrays: ["$$value", "$$this"] }
+          }
+        }
+      },
+
+      // Fecha de la última compra
+      ultimaCompra: {
+        $max: {
+          $reduce: {
+            input: "$fechas",
+            initialValue: [],
+            in: { $concatArrays: ["$$value", "$$this"] }
+          }
+        }
+      },
+
+      // Oculto _id
+      _id: 0
+    }
+  },
+
+  // 6 Ordenar el informe por total gastado (de mayor a menor)
+  {
+    $sort: { totalGastado: -1 }
+  }
+
+]);
+
+/*
+Salida esperada:
+[
+  {
+    "totalGastado": 2460,
+    "cantidadCompras": 3,
+    "nombre": "Ana Martínez",
+    "email": "ana@example.com",
+    "productoFavorito": {
+      "nombre": "Laptop Pro X",
+      "cantidad": 2
+    },
+    "categoriaPreferida": {
+      "categoria": "Electrónica",
+      "gasto": 2400
+    },
+    "primeraCompra": {
+      "$date": "2023-03-15T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-26T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 870,
+    "cantidadCompras": 3,
+    "nombre": "Carlos López",
+    "email": "carlos@example.com",
+    "productoFavorito": {
+      "nombre": "Auriculares Inalámbricos",
+      "cantidad": 2
+    },
+    "categoriaPreferida": {
+      "categoria": "Electrónica",
+      "gasto": 450
+    },
+    "primeraCompra": {
+      "$date": "2023-03-16T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-27T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 860,
+    "cantidadCompras": 2,
+    "nombre": "Juan Pérez",
+    "email": "juan@example.com",
+    "productoFavorito": {
+      "nombre": "Smartphone Galaxy",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Electrónica",
+      "gasto": 800
+    },
+    "primeraCompra": {
+      "$date": "2023-03-18T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-29T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 800,
+    "cantidadCompras": 1,
+    "nombre": "Pedro Díaz",
+    "email": "pedro@example.com",
+    "productoFavorito": {
+      "nombre": "Smartphone Galaxy",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Electrónica",
+      "gasto": 800
+    },
+    "primeraCompra": {
+      "$date": "2023-03-25T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-25T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 350,
+    "cantidadCompras": 1,
+    "nombre": "Laura García",
+    "email": "laura@example.com",
+    "productoFavorito": {
+      "nombre": "Monitor UltraWide",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Electrónica",
+      "gasto": 350
+    },
+    "primeraCompra": {
+      "$date": "2023-03-21T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-21T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 240,
+    "cantidadCompras": 1,
+    "nombre": "Elena Rodríguez",
+    "email": "elena@example.com",
+    "productoFavorito": {
+      "nombre": "Webcam HD",
+      "cantidad": 3
+    },
+    "categoriaPreferida": {
+      "categoria": "Accesorios",
+      "gasto": 240
+    },
+    "primeraCompra": {
+      "$date": "2023-03-23T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-23T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 220,
+    "cantidadCompras": 1,
+    "nombre": "Roberto Sánchez",
+    "email": "roberto@example.com",
+    "productoFavorito": {
+      "nombre": "Disco Duro Externo",
+      "cantidad": 2
+    },
+    "categoriaPreferida": {
+      "categoria": "Almacenamiento",
+      "gasto": 220
+    },
+    "primeraCompra": {
+      "$date": "2023-03-20T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-20T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 200,
+    "cantidadCompras": 1,
+    "nombre": "Miguel Fernández",
+    "email": "miguel@example.com",
+    "productoFavorito": {
+      "nombre": "Impresora Láser",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Oficina",
+      "gasto": 200
+    },
+    "primeraCompra": {
+      "$date": "2023-03-24T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-24T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 120,
+    "cantidadCompras": 1,
+    "nombre": "Sofía Torres",
+    "email": "sofia@example.com",
+    "productoFavorito": {
+      "nombre": "Auriculares Inalámbricos",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Accesorios",
+      "gasto": 120
+    },
+    "primeraCompra": {
+      "$date": "2023-03-28T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-28T00:00:00Z"
+    }
+  },
+  {
+    "totalGastado": 90,
+    "cantidadCompras": 1,
+    "nombre": "María González",
+    "email": "maria@example.com",
+    "productoFavorito": {
+      "nombre": "Teclado Mecánico RGB",
+      "cantidad": 1
+    },
+    "categoriaPreferida": {
+      "categoria": "Accesorios",
+      "gasto": 90
+    },
+    "primeraCompra": {
+      "$date": "2023-03-17T00:00:00Z"
+    },
+    "ultimaCompra": {
+      "$date": "2023-03-17T00:00:00Z"
+    }
+  }
+]
+*/

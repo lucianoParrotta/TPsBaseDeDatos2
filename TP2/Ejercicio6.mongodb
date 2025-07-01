@@ -1,0 +1,11 @@
+
+use('empresa');
+
+// Crea un índice compuesto y luego se utiliza para buscar
+db.clientes.createIndex(
+  { apellido: 1, nombre: 1 }
+);
+
+db.clientes.find(
+  { apellido: "Ana", nombre: "Lopez" }
+);

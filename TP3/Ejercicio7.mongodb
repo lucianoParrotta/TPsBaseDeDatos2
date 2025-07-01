@@ -1,0 +1,35 @@
+db.productos.aggregate([
+  {
+    $project: {
+      nombre: 1,
+      precio: 1,
+      categoriaPrecio: {
+        $switch: {
+          branches: [
+            { case: { $lt: ["$precio", 100] }, then: "Económico" },
+            { case: { $and: [ { $gte: ["$precio", 100] }, { $lte: ["$precio", 500] } ] }, then: "Estándar" }
+          ],
+          default: "Premium"
+        }
+      }
+    }
+  }
+]);
+
+db.ventas.aggregate([
+  {
+    $project: {
+      _id: 1,
+      total: 1,
+      clasificacion: {
+        $switch: {
+          branches: [
+            { case: { $lt: ["$total", 200] }, then: "Pequeña" },
+            { case: { $and: [ { $gte: ["$total", 200] }, { $lte: ["$total", 800] } ] }, then: "Mediana" }
+          ],
+          default: "Grande"
+        }
+      }
+    }
+  }
+]);

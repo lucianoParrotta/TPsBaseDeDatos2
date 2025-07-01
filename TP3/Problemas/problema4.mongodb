@@ -1,0 +1,223 @@
+/**
+ * Sistema de Recomendación
+ * 
+ * Recomendaciones basadas en:
+ * - Productos de la misma categoría
+ * - Productos más populares
+ * - Producto mejor valorado en cada categoría
+ * 
+ */
+
+use('tiendaOnline');
+
+// Cambiar por el cliente deseado
+let clienteEmail = "ana@example.com";
+
+// Extraer categorías e IDs de productos comprados
+let infoCliente = db.ventas.aggregate([
+  { $match: { "cliente.email": clienteEmail } },
+  {
+    $lookup: {
+      from: "productos",
+      localField: "producto_id",
+      foreignField: "_id",
+      as: "producto"
+    }
+  },
+  { $unwind: "$producto" },
+  {
+    $group: {
+      _id: null,
+      categorias: { $addToSet: "$producto.categoria" },
+      productosComprados: { $addToSet: "$producto._id" }
+    }
+  }
+]).toArray()[0];
+
+if (!infoCliente) {
+  print(`El cliente ${clienteEmail} no tiene compras registradas.`);
+} else {
+  let categorias = infoCliente.categorias;
+  let productosComprados = infoCliente.productosComprados;
+
+  db.productos.aggregate([
+
+    // 1 Rama: Top 3 productos de la misma categoría
+    {
+      $match: {
+        categoria: { $in: categorias },
+        _id: { $nin: productosComprados }
+      }
+    },
+    {
+      $project: {
+        _id: 0,
+        nombre: 1,
+        categoria: 1,
+        precio: 1,
+        motivo: { $literal: "Basado en la misma categoría en que ha comprado" }
+      }
+    },
+    { $limit: 3 },
+
+    // 2 Rama: Top 3 productos más populares(mas vendidos) no comprados
+    {
+      $unionWith: {
+        coll: "ventas",
+        pipeline: [
+          {
+            $group: {
+              _id: "$producto_id",
+              cantidadVendida: { $sum: "$cantidad" }
+            }
+          },
+          { $sort: { cantidadVendida: -1 } },
+          { $match: { _id: { $nin: productosComprados } } },
+          {
+            $lookup: {
+              from: "productos",
+              localField: "_id",
+              foreignField: "_id",
+              as: "producto"
+            }
+          },
+          { $unwind: "$producto" },
+          {
+            $project: {
+              _id: 0,
+              nombre: "$producto.nombre",
+              categoria: "$producto.categoria",
+              precio: "$producto.precio",
+              motivo: { $literal: "Popular" }
+            }
+          },
+          { $limit: 3 }
+        ]
+      }
+    },
+
+    // 3 Rama: Mejor valorado en cada categoría de interés
+    {
+      $unionWith: {
+        coll: "productos",
+        pipeline: [
+          {
+            $match: {
+              categoria: { $in: categorias }
+            }
+          },
+          {
+            $project: {
+              nombre: 1,
+              categoria: 1,
+              precio: 1,
+              promedioPuntuacion: { $avg: "$valoraciones.puntuacion" }
+            }
+          },
+          { $sort: { categoria: 1, promedioPuntuacion: -1 } },
+          {
+            $group: {
+              _id: "$categoria",
+              nombre: { $first: "$nombre" },
+              precio: { $first: "$precio" },
+              promedioPuntuacion: { $first: "$promedioPuntuacion" }
+            }
+          },
+          {
+            $project: {
+              _id: 0,
+              categoria: "$_id",
+              nombre: 1,
+              precio: 1,
+              promedioPuntuacion: 1,
+              motivo: { $literal: "Mejor valorado en tu categoría" }
+            }
+          }
+        ]
+      }
+    },
+
+    // Añadir prioridad numérica para ordenar las recomendaciones
+    {
+    $addFields: {
+        prioridad: {
+        $switch: {
+            branches: [
+            { case: { $eq: ["$motivo", "Basado en la misma categoría en que ha comprado"] }, then: 1 },
+            { case: { $eq:  ["$motivo", "Popular"]}, then: 2 },
+            { case: { $eq:  ["$motivo", "Mejor valorado en tu categoría"] }, then: 3 }
+            ],
+            default: 4
+        }
+        }
+    }
+    },
+    // Orden final por prioridad y nombre
+    {
+    $sort: { prioridad: 1, nombre: 1 }
+    },
+    // Quitar campo prioridad de la salida
+    {
+    $project: {
+        prioridad: 0
+    }
+    }
+
+  ]).pretty();
+}
+
+/*
+Ejemplo de salida esperada:
+[
+  {
+    "nombre": "Auriculares Inalámbricos",
+    "categoria": "Accesorios",
+    "precio": 120,
+    "motivo": "Basado en la misma categoría en que ha comprado"
+  },
+  {
+    "nombre": "Monitor UltraWide",
+    "categoria": "Electrónica",
+    "precio": 350,
+    "motivo": "Basado en la misma categoría en que ha comprado"
+  },
+  {
+    "nombre": "Smartphone Galaxy",
+    "categoria": "Electrónica",
+    "precio": 800,
+    "motivo": "Basado en la misma categoría en que ha comprado"
+  },
+  {
+    "nombre": "Auriculares Inalámbricos",
+    "categoria": "Accesorios",
+    "precio": 120,
+    "motivo": "Popular"
+  },
+  {
+    "nombre": "Teclado Mecánico RGB",
+    "categoria": "Accesorios",
+    "precio": 90,
+    "motivo": "Popular"
+  },
+  {
+    "nombre": "Webcam HD",
+    "categoria": "Accesorios",
+    "precio": 80,
+    "motivo": "Popular"
+  },
+  {
+    "nombre": "Monitor UltraWide",
+    "precio": 350,
+    "promedioPuntuacion": 5,
+    "categoria": "Electrónica",
+    "motivo": "Mejor valorado en tu categoría"
+  },
+  {
+    "nombre": "Mouse Gaming",
+    "precio": 60,
+    "promedioPuntuacion": 4.5,
+    "categoria": "Accesorios",
+    "motivo": "Mejor valorado en tu categoría"
+  }
+]
+*/

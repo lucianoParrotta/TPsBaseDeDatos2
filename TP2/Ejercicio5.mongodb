@@ -1,0 +1,25 @@
+use('empresa')
+
+//colleccion de ventas
+db.createCollection("ventas");
+// Insertar documentos en la colección de ventas
+db.ventas.insertMany([
+  { producto: "Monitor", cantidad: 2, precio_unitario: 150.00 },
+  { producto: "Teclado", cantidad: 5, precio_unitario: 25.00 },
+  { producto: "Mouse", cantidad: 10, precio_unitario: 15.00 },
+  { producto: "Monitor", cantidad: 1, precio_unitario: 150.00 },
+  { producto: "Teclado", cantidad: 3, precio_unitario: 25.00 },
+  { producto: "Mouse", cantidad: 2, precio_unitario: 15.00 }
+]);
+
+// Cálculo del total de ventas por producto usando agregación
+db.ventas.aggregate([
+  {
+    $group: {
+      _id: "$producto",
+      total_ventas: {
+        $sum: { $multiply: ["$cantidad", "$precio_unitario"] }
+      }
+    }
+  }
+]);
